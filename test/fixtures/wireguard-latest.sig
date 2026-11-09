@@ -1,0 +1,5 @@
+untrusted comment: verify with wireguard-windows-release.pub
+RWRNqGKtBXftKXxdOWjsTHtUTWLcjLqfOzJG4TOVx/+KTnxUK2nMY4aLt2RmqwCrfsiWJBZb4zG8qJxpnbXvD6c6+I4pqsBMLAI=
+f64b88dea419f57cd8068c3a2284aedd2f33fb5656985dbdaf4bb6001168ac8b  wireguard-amd64-1.1.1.msi
+1390d251ff4630f7cd32e06aa138105c6ededfbdac043efd11c7168b3876af2c  wireguard-arm64-1.1.1.msi
+b76929b5b6bd654665e606ebfcd1430455cf36d56b2f825ff6a00afd7a69c1b2  wireguard-x86-1.1.1.msi

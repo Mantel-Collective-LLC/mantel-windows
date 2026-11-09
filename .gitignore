@@ -1,0 +1,17 @@
+node_modules/
+out/
+dist/
+dist-debug/
+*.log
+
+dist-fix*/
+dist-i18n/
+dist-*/
+
+build/mac/
+build/obfs/
+build/service/
+build/service-build/
+.env*
+*.pfx
+*.p12

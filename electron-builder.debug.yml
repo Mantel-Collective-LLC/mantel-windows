@@ -1,0 +1,13 @@
+extends: ./electron-builder.yml
+appId: net.mantel.desktop.debug
+productName: Mantel Debug
+extraMetadata:
+  productName: Mantel Debug
+directories:
+  output: dist-debug
+win:
+  executableName: MantelDebug
+nsis:
+  shortcutName: Mantel Debug
+  artifactName: Mantel-Debug-Setup-${version}-x64.${ext}
+  include: build/installer-debug.nsh
