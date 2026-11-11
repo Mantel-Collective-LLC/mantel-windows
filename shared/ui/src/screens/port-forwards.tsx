@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { PlusIcon, WarningIcon, XIcon } from "@phosphor-icons/react";
-import type { Account, Device, MantelBridge, PortForward, PortForwardingState, VpnNode } from "../../../core/contract";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { WarningIcon } from "@phosphor-icons/react";
+import type { Account, Device, MantelBridge, PortForward, PortForwardingState, Result, VpnNode } from "../../../core/contract";
 import { useI18n } from "../i18n/context";
 import { cn } from "../lib/cn";
 import { Flag } from "../ui/flag";
@@ -15,7 +15,18 @@ export function parseLocalPort(text: string): number | null | undefined {
   return port >= 1 && port <= 65535 ? port : undefined;
 }
 
-type Load = { kind: "loading" } | { kind: "ready"; state: PortForwardingState | null } | { kind: "failed"; error: string };
+export function publishPort(
+  bridge: MantelBridge,
+  deviceId: string,
+  text: string,
+  localSupported: boolean,
+): Promise<Result<PortForwardingState | null>> | null {
+  const localPort = parseLocalPort(text);
+  if (localPort === undefined || (localPort !== null && !localSupported) || !bridge.addPortForward) return null;
+  return bridge.addPortForward(deviceId, localPort);
+}
+
+export type ForwardsLoad = { kind: "loading" } | { kind: "ready"; state: PortForwardingState | null } | { kind: "failed"; error: string };
 
 export function PortForwardsPage({
   bridge,
@@ -30,6 +41,14 @@ export function PortForwardsPage({
 }) {
   const { t } = useI18n();
   const devices = account.devices;
+  const [ownId, setOwnId] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void bridge.currentDeviceId?.().then((id) => alive && setOwnId(id));
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
   return (
     <div className="space-y-4">
       <PageHeader title={t.forwards.title} description={t.forwards.description} />
@@ -46,29 +65,49 @@ export function PortForwardsPage({
       ) : (
         <>
           {devices.map((device) => (
-            <DeviceForwards key={device.id} bridge={bridge} device={device} node={nodes.find((node) => node.id === device.nodeId) ?? null} />
+            <DeviceForwards
+              key={device.id}
+              bridge={bridge}
+              device={device}
+              own={device.id === ownId}
+              node={nodes.find((node) => node.id === device.nodeId) ?? null}
+            />
           ))}
-          <div className="space-y-2 px-1 text-[12.5px] leading-relaxed text-zinc-500">
-            <p>{t.forwards.hint}</p>
-            <p>{t.forwards.switchNote}</p>
-            <p className="flex items-start gap-1.5 text-amber-700">
-              <WarningIcon weight="fill" className="mt-0.5 size-4 shrink-0" aria-hidden />
-              {t.forwards.warning}
-            </p>
-          </div>
+          <ForwardNotes />
         </>
       )}
     </div>
   );
 }
 
-function DeviceForwards({ bridge, device, node }: { bridge: MantelBridge; device: Device; node: VpnNode | null }) {
-  const { t, format } = useI18n();
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
+export function ForwardNotes() {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-3 px-1">
+      <ul className="list-disc space-y-1 pl-4 text-[12.5px] leading-relaxed text-zinc-500 marker:text-zinc-300">
+        <li>{t.forwards.listenHint}</li>
+        <li>{t.forwards.connectedNote}</li>
+        <li>{t.forwards.switchNote}</li>
+      </ul>
+      <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-amber-700">
+        <WarningIcon weight="fill" className="mt-0.5 size-4 shrink-0" aria-hidden />
+        {t.forwards.warning}
+      </p>
+      <details className="group rounded-2xl border border-zinc-200/80 px-3.5 py-2.5">
+        <summary className="cursor-pointer text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          {t.forwards.torrentTitle}
+        </summary>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-zinc-500">{t.forwards.hint}</p>
+      </details>
+    </div>
+  );
+}
+
+function DeviceForwards({ bridge, device, node, own }: { bridge: MantelBridge; device: Device; node: VpnNode | null; own: boolean }) {
+  const [load, setLoad] = useState<ForwardsLoad>({ kind: "loading" });
   const [pending, setPending] = useState<number | "add" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [localText, setLocalText] = useState("");
-  const localPort = parseLocalPort(localText);
 
   const read = useCallback(async () => {
     const result = await bridge.devicePortForwarding?.(device.id);
@@ -80,38 +119,87 @@ function DeviceForwards({ bridge, device, node }: { bridge: MantelBridge; device
     void read();
   }, [read]);
 
-  const change = async (action: number | "add") => {
+  const run = async (action: number | "add", call: Promise<Result<PortForwardingState | null>> | null | undefined): Promise<boolean> => {
+    if (!call) return false;
     setPending(action);
     setError(null);
-    const result =
-      action === "add" ? await bridge.addPortForward?.(device.id, localPort ?? null) : await bridge.removePortForward?.(device.id, action);
+    const result = await call;
     setPending(null);
-    if (!result) return;
-    if (result.ok) {
-      setLoad({ kind: "ready", state: result.value });
-      if (action === "add") setLocalText("");
-    } else setError(result.error);
-  };
-
-  const saveLocal = async (port: number, value: number | null): Promise<boolean> => {
-    setPending(port);
-    setError(null);
-    const result = await bridge.setPortForwardLocalPort?.(device.id, port, value);
-    setPending(null);
-    if (!result) return false;
     if (result.ok) setLoad({ kind: "ready", state: result.value });
     else setError(result.error);
     return result.ok;
   };
 
+  const localSupported = load.kind === "ready" && load.state?.localPort === true;
+  return (
+    <DeviceForwardsView
+      bridge={bridge}
+      device={device}
+      node={node}
+      own={own}
+      load={load}
+      pending={pending}
+      error={error}
+      localText={localText}
+      onLocalText={setLocalText}
+      onPublish={() =>
+        void run("add", publishPort(bridge, device.id, localText, localSupported)).then((ok) => ok && setLocalText(""))
+      }
+      onRemove={(port) => void run(port, bridge.removePortForward?.(device.id, port))}
+      onSaveLocal={(port, value) => run(port, bridge.setPortForwardLocalPort?.(device.id, port, value))}
+      onRetry={() => void read()}
+    />
+  );
+}
+
+export function DeviceForwardsView({
+  bridge,
+  device,
+  node,
+  own,
+  load,
+  pending,
+  error,
+  localText,
+  onLocalText,
+  onPublish,
+  onRemove,
+  onSaveLocal,
+  onRetry,
+}: {
+  bridge: MantelBridge;
+  device: Device;
+  node: VpnNode | null;
+  own: boolean;
+  load: ForwardsLoad;
+  pending: number | "add" | null;
+  error: string | null;
+  localText: string;
+  onLocalText: (text: string) => void;
+  onPublish: () => void;
+  onRemove: (port: number) => void;
+  onSaveLocal: (port: number, value: number | null) => Promise<boolean>;
+  onRetry: () => void;
+}) {
+  const { t, format } = useI18n();
   const state = load.kind === "ready" ? load.state : null;
   const forwards = state?.forwards ?? [];
   const city = state?.city ?? node?.city ?? t.devices.unknownLocation;
   const reasons = t.settings.portForwardingReasons;
   const reason = state?.reason ? format(reasons[state.reason] ?? reasons.unsupported, { city }) : null;
-  const canAdd = state !== null && state.available && forwards.length < state.max && localPort !== undefined;
-  const showLocal = state !== null && state.localPort && state.available;
-  const localId = `pf-local-${device.id}`;
+  const localPort = parseLocalPort(localText);
+  const unsupported = typeof localPort === "number" && state !== null && !state.localPort;
+  const showForm = state !== null && state.available && forwards.length < state.max;
+  const canPublish = localPort !== undefined && !unsupported && pending === null;
+  const target = own ? t.forwards.thisDevice : device.name;
+  const editable = state?.localPort === true && bridge.setPortForwardLocalPort !== undefined;
+  const id = `pf-local-${device.id}`;
+  const fieldProblem = localPort === undefined ? t.forwards.localPortInvalid : unsupported ? format(t.forwards.localUnsupported, { city }) : null;
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (canPublish) onPublish();
+  };
 
   return (
     <Card className="overflow-hidden">
@@ -129,90 +217,55 @@ function DeviceForwards({ bridge, device, node }: { bridge: MantelBridge; device
           </div>
           {state && <Badge>{format(t.forwards.count, { count: forwards.length, max: state.max })}</Badge>}
         </header>
-        <div className="space-y-2 px-4 py-3">
+        <div className="space-y-3 px-4 py-3">
           {load.kind === "loading" && <span className="block h-10 animate-pulse rounded-2xl bg-zinc-100" />}
           {load.kind === "ready" && state === null && <p className="text-[13px] text-zinc-500">{t.forwards.noForward}</p>}
-          {state && forwards.length === 0 && !reason && <p className="text-[13px] text-zinc-500">{t.forwards.none}</p>}
           {reason && <p className="text-[13px] leading-relaxed text-zinc-600">{reason}</p>}
           {forwards.map((forward) => (
-            <div key={forward.port} className="rounded-2xl border border-zinc-200/80 bg-zinc-50/60 py-2 pl-3.5 pr-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-mono text-[15px] tabular-nums tracking-[-0.02em] text-ink">
-                    {forward.port}
-                    {forward.localPort !== null && <span className="text-zinc-500"> → :{forward.localPort}</span>}
-                  </p>
-                  <p className="font-mono text-[11.5px] text-zinc-400 [overflow-wrap:anywhere]">
-                    {forward.host}:{forward.port} · {t.settings.portForwardingProtocols}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <CopyButton bridge={bridge} text={`${forward.host}:${forward.port}`} label={`${forward.host}:${forward.port}`} compact />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={format(t.forwards.remove, { port: forward.port })}
-                    pending={pending === forward.port}
-                    disabled={pending !== null}
-                    onClick={() => void change(forward.port)}
-                    icon={<XIcon weight="bold" className="size-4" aria-hidden />}
-                  >
-                    {null}
-                  </Button>
-                </div>
-              </div>
-              {state?.localPort && bridge.setPortForwardLocalPort && (
-                <LocalPortEditor forward={forward} disabled={pending !== null} onSave={(value) => saveLocal(forward.port, value)} />
-              )}
-            </div>
+            <ForwardRow
+              key={forward.port}
+              bridge={bridge}
+              forward={forward}
+              target={target}
+              editable={editable}
+              pending={pending}
+              onRemove={() => onRemove(forward.port)}
+              onSaveLocal={(value) => onSaveLocal(forward.port, value)}
+            />
           ))}
-          {showLocal && forwards.length < (state?.max ?? 0) && (
-            <div className="space-y-1 pt-1">
-              <label htmlFor={localId} className="block text-[12.5px] font-medium text-zinc-600">
+          {showForm && (
+            <form onSubmit={submit} className="space-y-1.5" noValidate>
+              <label htmlFor={id} className="block text-[12.5px] font-medium text-zinc-600">
                 {t.forwards.localPort}
               </label>
-              <input
-                id={localId}
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={5}
-                value={localText}
-                placeholder={t.forwards.localPortPlaceholder}
-                aria-invalid={localPort === undefined || undefined}
-                aria-describedby={`${localId}-help`}
-                onChange={(event) => setLocalText(event.target.value)}
-                className={cn(FIELD, "max-w-40 font-mono tabular-nums", localPort === undefined && "border-red-400")}
-              />
-              <p id={`${localId}-help`} aria-live="polite" className={cn("text-[12.5px]", localPort === undefined ? "text-red-600" : "text-zinc-500")}>
-                {localPort === undefined ? t.forwards.localPortInvalid : t.forwards.localPortHelp}
+              <div className="flex items-center gap-2">
+                <input
+                  id={id}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={5}
+                  value={localText}
+                  placeholder={t.forwards.localPortPlaceholder}
+                  aria-invalid={fieldProblem !== null || undefined}
+                  aria-describedby={`${id}-help`}
+                  onChange={(event) => onLocalText(event.target.value)}
+                  className={cn(FIELD, "h-11 max-w-32 py-0 font-mono tabular-nums", fieldProblem !== null && "border-red-400")}
+                />
+                <Button type="submit" pending={pending === "add"} disabled={!canPublish}>
+                  {t.forwards.add}
+                </Button>
+              </div>
+              <p id={`${id}-help`} aria-live="polite" className={cn("text-[12.5px] leading-relaxed", fieldProblem ? "text-red-600" : "text-zinc-500")}>
+                {fieldProblem ?? t.forwards.localPortHelp}
               </p>
-            </div>
+            </form>
           )}
-          {(showLocal || forwards.some((forward) => forward.localPort !== null)) && (
-            <p className="text-[12.5px] leading-relaxed text-zinc-500">{t.forwards.listenHint}</p>
-          )}
-          {state && (
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              {state.available && forwards.length >= state.max ? (
-                <p className="text-[12.5px] text-zinc-500">{format(t.forwards.limitNote, { max: state.max })}</p>
-              ) : (
-                <span />
-              )}
-              <Button
-                variant="secondary"
-                size="sm"
-                pending={pending === "add"}
-                disabled={!canAdd || pending !== null}
-                onClick={() => void change("add")}
-                icon={<PlusIcon weight="bold" className="size-4" aria-hidden />}
-              >
-                {t.forwards.add}
-              </Button>
-            </div>
+          {state?.available && forwards.length >= state.max && (
+            <p className="text-[12.5px] text-zinc-500">{format(t.forwards.limitNote, { max: state.max })}</p>
           )}
           <InlineError message={load.kind === "failed" ? load.error : error} />
           {load.kind === "failed" && (
-            <Button variant="ghost" size="sm" onClick={() => void read()}>
+            <Button variant="ghost" size="sm" onClick={onRetry}>
               {t.manage.retry}
             </Button>
           )}
@@ -222,34 +275,112 @@ function DeviceForwards({ bridge, device, node }: { bridge: MantelBridge; device
   );
 }
 
-function LocalPortEditor({ forward, disabled, onSave }: { forward: PortForward; disabled: boolean; onSave: (value: number | null) => Promise<boolean> }) {
+function ForwardRow({
+  bridge,
+  forward,
+  target,
+  editable,
+  pending,
+  onRemove,
+  onSaveLocal,
+}: {
+  bridge: MantelBridge;
+  forward: PortForward;
+  target: string;
+  editable: boolean;
+  pending: number | "add" | null;
+  onRemove: () => void;
+  onSaveLocal: (value: number | null) => Promise<boolean>;
+}) {
+  const { t, format } = useI18n();
+  const [editing, setEditing] = useState(false);
+  const address = `${forward.host}:${forward.port}`;
+  return (
+    <div className="rounded-2xl border border-zinc-200/80 bg-zinc-50/60 px-3.5 py-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[11.5px] text-zinc-500">{t.forwards.publicAddress}</p>
+          <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 [overflow-wrap:anywhere]">
+            <span className="select-all font-mono text-[17px] tabular-nums tracking-[-0.02em] text-ink">{address}</span>
+            <span className="text-[14px] tabular-nums text-zinc-600">
+              {format(t.forwards.leadsTo, { device: target, port: forward.localPort ?? forward.port })}
+            </span>
+          </p>
+          <p className="mt-0.5 text-[11.5px] text-zinc-400">{t.settings.portForwardingProtocols}</p>
+        </div>
+        <CopyButton bridge={bridge} text={address} label={`${t.forwards.publicAddress} ${address}`} compact />
+      </div>
+      {editing ? (
+        <LocalPortEditor forward={forward} disabled={pending !== null} onSave={onSaveLocal} onDone={() => setEditing(false)} />
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {editable && (
+            <Button variant="secondary" size="sm" disabled={pending !== null} onClick={() => setEditing(true)}>
+              {t.forwards.changeLocal}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={format(t.forwards.remove, { port: forward.port })}
+            pending={pending === forward.port}
+            disabled={pending !== null}
+            onClick={onRemove}
+          >
+            {t.forwards.unpublish}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LocalPortEditor({
+  forward,
+  disabled,
+  onSave,
+  onDone,
+}: {
+  forward: PortForward;
+  disabled: boolean;
+  onSave: (value: number | null) => Promise<boolean>;
+  onDone: () => void;
+}) {
   const { t, format } = useI18n();
   const [text, setText] = useState(forward.localPort === null ? "" : String(forward.localPort));
-  useEffect(() => setText(forward.localPort === null ? "" : String(forward.localPort)), [forward.localPort]);
   const value = parseLocalPort(text);
   const normalized = value === forward.port ? null : value;
   const dirty = value !== undefined && normalized !== forward.localPort;
   const id = `pf-edit-${forward.port}`;
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (dirty && !disabled) void onSave(normalized ?? null).then((ok) => ok && onDone());
+  };
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 pr-1.5">
-      <label htmlFor={id} className="sr-only">
+    <form onSubmit={save} className="mt-2 space-y-1" noValidate>
+      <label htmlFor={id} className="block text-[12.5px] font-medium text-zinc-600">
         {format(t.forwards.localPortFor, { port: forward.port })}
       </label>
-      <input
-        id={id}
-        inputMode="numeric"
-        autoComplete="off"
-        maxLength={5}
-        value={text}
-        placeholder={t.forwards.localPortPlaceholder}
-        aria-invalid={value === undefined || undefined}
-        onChange={(event) => setText(event.target.value)}
-        className={cn(FIELD, "h-9 max-w-36 py-0 font-mono tabular-nums", value === undefined && "border-red-400")}
-      />
-      <Button variant="secondary" size="sm" disabled={!dirty || disabled} onClick={() => void onSave(value ?? null)}>
-        {t.forwards.save}
-      </Button>
-      {value === undefined && <span className="text-[12.5px] text-red-600">{t.forwards.localPortInvalid}</span>}
-    </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={id}
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={5}
+          value={text}
+          placeholder={t.forwards.localPortPlaceholder}
+          aria-invalid={value === undefined || undefined}
+          onChange={(event) => setText(event.target.value)}
+          className={cn(FIELD, "h-9 max-w-32 py-0 font-mono tabular-nums", value === undefined && "border-red-400")}
+        />
+        <Button type="submit" variant="secondary" size="sm" disabled={!dirty || disabled}>
+          {t.forwards.save}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onDone}>
+          {t.forwards.cancel}
+        </Button>
+      </div>
+      {value === undefined && <p className="text-[12.5px] text-red-600">{t.forwards.localPortInvalid}</p>}
+    </form>
   );
 }

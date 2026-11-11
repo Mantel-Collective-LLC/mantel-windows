@@ -91,6 +91,7 @@ function teamReply(ticket) {
     ticket.lastActor = "team";
     ticket.updatedAt = Date.now();
   } catch {
+    return;
   }
 }
 

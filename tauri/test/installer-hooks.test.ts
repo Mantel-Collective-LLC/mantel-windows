@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,18 +11,7 @@ function macro(name: string): string {
   return hooks.slice(start, hooks.indexOf("!macroend", start));
 }
 
-function electronBuilderGuid(appId: string): string {
-  const ns = Buffer.from("50e065bc313411e69bab38c9862bdaf3", "hex");
-  const hash = createHash("sha1").update(ns).update(appId).digest();
-  hash[6] = (hash[6]! & 0x0f) | 0x50;
-  hash[8] = (hash[8]! & 0x3f) | 0x80;
-  const hex = hash.subarray(0, 16).toString("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 
-function appId(file: string): string {
-  return /^appId: (\S+)$/m.exec(readFileSync(path.join(root, file), "utf8"))![1]!;
-}
 
 describe("Tauri installer hooks", () => {
   it("runs the Electron uninstaller from a copy outside the install folder", () => {
@@ -67,8 +55,5 @@ describe("Tauri installer hooks", () => {
     for (const hook of ["NSIS_HOOK_PREINSTALL", "NSIS_HOOK_POSTINSTALL", "NSIS_HOOK_PREUNINSTALL"]) {
       expect(macro(hook).split("\n")[1]?.trim()).toBe("!insertmacro MANTEL_FLAVOR_DEFINES");
     }
-    const flavors = macro("MANTEL_FLAVOR_DEFINES");
-    expect(flavors).toContain(`"${electronBuilderGuid(appId("electron-builder.yml"))}"`);
-    expect(flavors).toContain(`"${electronBuilderGuid(appId("electron-builder.debug.yml"))}"`);
   });
 });

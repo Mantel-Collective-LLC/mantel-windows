@@ -1,4 +1,0 @@
-[SC] EnumQueryServicesStatus:OpenService FEHLER 1060:
-
-Der angegebene Dienst ist kein installierter Dienst.
-

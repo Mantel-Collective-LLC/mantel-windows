@@ -1,68 +1,63 @@
 # Mantel for Windows
 
-The Windows client of [Mantel VPN](https://mantelvpn.com). A [Tauri](https://tauri.app) app: the window, tray,
-settings, secrets and API client are Rust (`tauri/src-tauri/`), the user interface is React (TypeScript, Tailwind CSS)
-in the system WebView2. The tunnel is the official [WireGuard for Windows](https://www.wireguard.com/install/) tunnel
-service, controlled by the Mantel Service, a Windows service that does everything that needs system rights (tunnel,
-firewall kill switch, obfuscation relay). The app itself runs without administrator rights.
+Mantel VPN for Windows, built in Rust with Tauri 2. It replaces the earlier Electron app.
 
-This repository contains the app only. **The Mantel Service and its tunnel engine are not open source** and not part
-of this repository, nor is the Mantel server side (API, VPN servers). The signed installer with the app and the
-service is attached to every [GitHub release](../../releases) and offered at
-[mantelvpn.com](https://mantelvpn.com/en/download).
+The app (window, tray, settings, secrets, API client) is Rust; the user interface is React in the system WebView2.
+The tunnel itself runs in the Mantel Service, a Windows service that is installed with the app and is not part of
+this repository. The app runs without administrator rights.
+
+## Tech stack
+
+| Part | Technology |
+|---|---|
+| App | Rust 1.90+, Tauri 2.12 |
+| User interface | React 19, TypeScript, Vite, Tailwind CSS 4, in Microsoft WebView2 |
+| HTTP | reqwest with rustls |
+| Tunnel | WireGuard, through the official WireGuard for Windows tunnel service |
+| Kill switch | Windows Firewall rules |
+| Post-quantum | Optional ML-KEM-768 key exchange that derives the WireGuard pre-shared key |
+| Secrets | Windows DPAPI |
+| Releases | Installer signed with GPG, plus `SHA256SUMS` |
 
 ## Features
 
-- WireGuard tunnel with kill switch (Windows Firewall rules), LAN access, IPv6 and DNS blocker settings
-- Quantum-resistant tunnel (optional): an ML-KEM-768 key exchange derives a WireGuard pre-shared key
-- Obfuscation: WireGuard over TLS 1.3 on TCP 443 for networks that block VPN traffic
+- WireGuard tunnel with kill switch, LAN access, IPv6 and DNS blocker settings
+- Optional quantum-resistant tunnel (ML-KEM-768)
+- Obfuscation: WireGuard over TLS on TCP 443 for networks that block VPNs
 - Port forwarding, server proxies, Tor over VPN, device management
 - Auto-connect on open Wi-Fi, connect at login, tray icon
-- Latency per location, measured on the device
 - End-to-end encrypted support tickets
-- Light/dark theme, English and German
-- Account number login with optional two-factor authentication; secrets are stored with Windows DPAPI
+- Login with an account number and optional two-factor authentication
 
-## Layout
+## Download
 
-| Path | Content |
-|---|---|
-| `tauri/src-tauri/` | Rust: window, tray, settings, secrets (DPAPI), API client, service pipe, autostart, log file, NSIS hooks |
-| `tauri/src/` | The bridge between the user interface and Rust, support ticket crypto (WebCrypto) |
-| `shared/ui/` | The React user interface (shared with the Mantel Android app, so some screens are Android-only) |
-| `shared/core/` | Contracts between UI and app, i18n texts (`i18n/*.json`), shared helpers |
-| `shared/ticket/` | Support ticket protocol and end-to-end encryption (WebCrypto) |
-| `src/main/` | Shared TypeScript (API schemas) and the previous Electron app |
-| `test/`, `tauri/test/` | Vitest tests |
-
-## Requirements
-
-- Windows 10 or 11 (x64) with WebView2
-- Node.js 22 or newer and npm
-- Rust 1.90 or newer (MSVC toolchain)
-
-## Build
-
-```sh
-npm ci
-npm run typecheck
-npm test                                                     # Vitest
-cargo test --manifest-path tauri/src-tauri/Cargo.toml        # Rust
-```
-
-This repository does not build an installer: the installer bundles the Mantel Service, which is not open source. Use
-the signed installer from the GitHub release (`Mantel-Setup-<version>-x64.exe` with its `.asc` signature and
-`SHA256SUMS`). The API server is fixed at build time (`MANTEL_API_URL`, must be HTTPS for prod builds); without
-it a debug build talks to `http://localhost:3000`.
-
-## Verifying a release
+Get the signed installer `Mantel-Setup-<version>-x64.exe` from the [releases](../../releases) or from
+[mantelvpn.com](https://mantelvpn.com/en/download). The release key and its fingerprint are listed at
+[mantelvpn.com/en/download/verify](https://mantelvpn.com/en/download/verify).
 
 ```sh
 gpg --verify Mantel-Setup-<version>-x64.exe.asc Mantel-Setup-<version>-x64.exe
 sha256sum -c SHA256SUMS
 ```
 
-## Development
+## Build from source
 
-`npm run tauri:dev` starts the debug app with hot reload. Connecting needs the Mantel Service, which is not part of
-this repository; the user interface itself works without it.
+Prerequisites: Windows 10 or 11 (x64) with WebView2, Node.js 22+, Rust 1.90+ (MSVC toolchain).
+
+```sh
+npm ci
+npm run typecheck
+npm test
+cargo test --manifest-path tauri/src-tauri/Cargo.toml
+```
+
+`npm run tauri:dev` starts the debug app. Connecting needs the Mantel Service, so this repository does not build an
+installer; the user interface works without it.
+
+## License
+
+GPL-3.0-only, see [LICENSE](LICENSE).
+
+## Security
+
+Report vulnerabilities as described in [security.txt](https://mantelvpn.com/.well-known/security.txt).
