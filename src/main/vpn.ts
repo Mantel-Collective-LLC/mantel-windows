@@ -37,7 +37,7 @@ import {
   type DeviceCheck,
   type RevocationReason,
 } from "../../shared/core/revocation";
-import { ApiClient, ApiError } from "./api/client";
+import { ApiClient, ApiError, type PortForwardAction } from "./api/client";
 import type { ApiAccount } from "./api/schemas";
 import { API_BASE_URL, IS_DEBUG } from "./flavor";
 import { collectHostAllowances, nodeEndpointsOf, sameEndpoints } from "./firewall/hosts";
@@ -303,11 +303,11 @@ export class VpnController extends EventEmitter {
     });
   }
 
-  register(): Promise<{ code: string }> {
+  register(referralCode?: string): Promise<{ code: string; referralDays: number | null }> {
     return this.serialize(async () => {
-      const response = await this.api.register();
+      const response = await this.api.register(referralCode);
       this.pendingRegistration = { token: response.token, accountId: response.account.id, paidUntil: response.account.paidUntil };
-      return { code: response.code };
+      return { code: response.code, referralDays: response.referralDays ?? null };
     });
   }
 
@@ -452,10 +452,7 @@ export class VpnController extends EventEmitter {
     return null;
   }
 
-  async devicePortForwarding(
-    deviceId: string,
-    action: "get" | "enable" | { removePort: number },
-  ): Promise<PortForwardingState | null> {
+  async devicePortForwarding(deviceId: string, action: Exclude<PortForwardAction, "disable">): Promise<PortForwardingState | null> {
     try {
       return await this.api.portForwarding(deviceId, action);
     } catch (error) {

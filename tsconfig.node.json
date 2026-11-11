@@ -25,5 +25,5 @@
       "tailwind-merge": ["./node_modules/tailwind-merge"]
     }
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "shared/core/**/*", "shared/ticket/**/*", "build/**/*.ts", "electron.vite.config.ts", "vite.web.config.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": ["src/main/**/*", "src/preload/**/*", "shared/core/**/*", "shared/ticket/**/*", "build/**/*.ts", "electron.vite.config.ts", "vite.web.config.ts", "vite.tauri.config.ts", "test/**/*.ts", "vitest.config.ts"]
 }

@@ -3,7 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["out/**", "dist/**", "dist-debug/**", "dist-fix/**", "dist-fix2/**", "dist-i18n/**", "dist-mac/**", "dist-mac-debug/**", "build/mac/**", "node_modules/**", "test/__snapshots__/**", "shared/**"] },
+  { ignores: ["out/**", "dist/**", "dist-debug/**", "dist-fix/**", "dist-fix2/**", "dist-i18n/**", "dist-mac/**", "dist-mac-debug/**", "build/mac/**", "node_modules/**", "test/__snapshots__/**", "shared/**", "dist-tauri/**", "dist-tauri-debug/**", "tauri/src-tauri/target/**", "tauri/src-tauri/gen/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

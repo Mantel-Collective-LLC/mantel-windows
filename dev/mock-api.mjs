@@ -441,6 +441,7 @@ async function route(request, response) {
     const device = account.devices.find((entry) => entry.id === forwardMatch[1]);
     if (!device) return fail(request, response, 404, "device_not_found", "Device not found.");
     device.forwardPorts ??= [];
+    device.forwardLocal ??= {};
     const node = nodes.find((entry) => entry.id === device.nodeId);
     const expired = Date.parse(account.paidUntil) <= Date.now();
     const reason = expired ? "expired" : !node?.online ? "offline" : node.portForwarding ? null : "unsupported";
@@ -452,8 +453,11 @@ async function route(request, response) {
       available: reason === null,
       reason,
       max: FORWARD_MAX,
-      forwards: device.forwardPorts.map((port) => ({ port, host: node?.endpointHost ?? "198.51.100.1", protocols: ["tcp", "udp"] })),
+      localPort: reason === null && process.env.MOCK_LOCAL_PORT !== "0",
+      forwards: device.forwardPorts.map((port) => ({ port, localPort: device.forwardLocal[port] ?? null, host: node?.endpointHost ?? "198.51.100.1", protocols: ["tcp", "udp"] })),
     });
+    const localPortOf = (value) =>
+      value === undefined || value === null ? null : Number.isInteger(value) && value >= 1 && value <= 65535 ? value : undefined;
     const single = forwardMatch[2] === undefined ? null : Number(forwardMatch[2]);
     if (request.method === "GET" && single === null) return send(request, response, 200, view());
     if (request.method === "POST" && single === null) {
@@ -462,8 +466,23 @@ async function route(request, response) {
       if (device.forwardPorts.length >= FORWARD_MAX) {
         return fail(request, response, 409, "port_forward_limit_reached", `At most ${FORWARD_MAX} forwarded ports are allowed. Remove one first.`, { max: FORWARD_MAX });
       }
-      device.forwardPorts.push(20000 + Math.floor(Math.random() * 30000));
+      const local = localPortOf(body?.localPort);
+      if (local === undefined) return fail(request, response, 400, "invalid_local_port", "localPort must be a whole number from 1 to 65535, or null.");
+      if (local !== null && process.env.MOCK_LOCAL_PORT === "0") {
+        return fail(request, response, 503, "local_port_unsupported", `${node?.city ?? "This location"} cannot forward to another local port yet. Leave localPort out.`, { city: node?.city ?? "" });
+      }
+      const port = 20000 + Math.floor(Math.random() * 30000);
+      device.forwardPorts.push(port);
+      if (local !== null && local !== port) device.forwardLocal[port] = local;
       return send(request, response, 201, view());
+    }
+    if (request.method === "PATCH" && single !== null) {
+      if (!device.forwardPorts.includes(single)) return fail(request, response, 404, "port_forward_not_found", "This forwarded port does not exist.");
+      const local = body && "localPort" in body ? localPortOf(body.localPort) : undefined;
+      if (local === undefined) return fail(request, response, 400, "invalid_local_port", "localPort must be a whole number from 1 to 65535, or null.");
+      if (local === null || local === single) delete device.forwardLocal[single];
+      else device.forwardLocal[single] = local;
+      return send(request, response, 200, view());
     }
     if (request.method === "DELETE") {
       if (single !== null && !device.forwardPorts.includes(single)) return fail(request, response, 404, "port_forward_not_found", "This forwarded port does not exist.");
@@ -528,7 +547,7 @@ async function route(request, response) {
     if (typeof body?.name !== "string" || !body.name.trim()) return fail(request, response, 400, "invalid_device_name", "name must be a string.");
     if (body.name.trim().length > 32) return fail(request, response, 400, "device_name_too_long", "Device names can have at most 32 characters.", { max: 32 });
     device.name = body.name.trim().replace(/\s+/g, " ");
-    const { publicKey: _omit, forwardPorts: _ports, ...publicDevice } = device;
+    const { publicKey: _omit, forwardPorts: _ports, forwardLocal: _local, ...publicDevice } = device;
     return send(request, response, 200, publicDevice);
   }
   if (request.method === "DELETE" && deviceMatch) {

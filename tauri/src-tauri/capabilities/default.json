@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Nur das Hauptfenster; nur Ereignisse empfangen. Die App-Befehle (commands.rs) prüfen ihre Eingaben selbst.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

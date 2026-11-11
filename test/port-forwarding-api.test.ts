@@ -20,6 +20,20 @@ describe("schemas", () => {
     expect(portForwardingSchema.safeParse({ ...body, forwards: [{ port: 41234, host: "not a host!" }] }).success).toBe(false);
     expect(portForwardingSchema.parse({ ...body, reason: null, available: true }).reason).toBeNull();
   });
+
+  it("port forwarding: localPort (agent 2.13) optional and tolerant; older servers send none", () => {
+    const body = { deviceId: "0123456789abcdef", nodeId: "nl-ams", city: "Amsterdam", country: "NL", available: true, reason: null, max: 1 };
+    const old = portForwardingSchema.parse({ ...body, forwards: [{ port: 41234, host: "198.51.100.4" }] });
+    expect(old.localPort).toBe(false);
+    expect(old.forwards[0]?.localPort).toBeNull();
+    const current = portForwardingSchema.parse({ ...body, localPort: true, forwards: [{ port: 41234, host: "198.51.100.4", localPort: 3000 }] });
+    expect(current.localPort).toBe(true);
+    expect(current.forwards[0]?.localPort).toBe(3000);
+    expect(portForwardingSchema.parse({ ...body, localPort: "yes", forwards: [{ port: 41234, host: "198.51.100.4", localPort: 0 }] })).toMatchObject({
+      localPort: false,
+      forwards: [{ localPort: null }],
+    });
+  });
 });
 
 describe("api errors", () => {
@@ -33,6 +47,9 @@ describe("api errors", () => {
     expect(message("port_forward_limit_reached", { max: 1 })).toBe("Höchstens 1 weitergeleitete Ports. Schalte zuerst einen ab.");
     expect(message("port_forwarding_full", { city: "Amsterdam" })).toContain("keine freien Ports");
     expect(message("port_forward_not_found")).toContain("weitergeleiteten Port");
+    expect(message("invalid_local_port")).toContain("1 bis 65535");
+    expect(message("local_port_unsupported", { city: "Amsterdam" })).toContain("Amsterdam kann noch nicht");
+    expect(message("local_port_unsupported")).toContain("Dieser Standort");
   });
 });
 
@@ -47,14 +64,17 @@ describe("api client", () => {
       let body = "";
       request.on("data", (chunk) => (body += chunk));
       request.on("end", () => {
-        const forwards = request.method === "POST" ? [{ port: 41234, host: "198.51.100.4", protocols: ["tcp", "udp"] }] : [];
-        if (request.method === "POST" && body !== "{}") {
+        seen.push(`body ${body || "-"}`);
+        const sent = body ? (JSON.parse(body) as { localPort?: number | null }) : {};
+        const local = sent.localPort ?? null;
+        const forwards = request.method === "POST" || request.method === "PATCH" ? [{ port: 41234, host: "198.51.100.4", protocols: ["tcp", "udp"], localPort: local }] : [];
+        if (request.method === "POST" && body !== "{}" && local === null) {
           response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ code: "unknown_field", error: "x" }));
           return;
         }
         response
           .writeHead(request.method === "POST" ? 201 : 200, { "content-type": "application/json" })
-          .end(JSON.stringify({ deviceId: "0123456789abcdef", nodeId: "nl-ams", city: "Amsterdam", country: "NL", available: true, reason: null, max: 1, forwards }));
+          .end(JSON.stringify({ deviceId: "0123456789abcdef", nodeId: "nl-ams", city: "Amsterdam", country: "NL", available: true, reason: null, max: 1, localPort: true, forwards }));
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -65,14 +85,29 @@ describe("api client", () => {
 
   it("GET, POST {} and DELETE on /devices/:id/port-forwarding with the session", async () => {
     const client = new ApiClient(() => base, () => "token-0123456789abcdef");
-    expect(await client.portForwarding("0123456789abcdef")).toEqual({ nodeId: "nl-ams", city: "Amsterdam", available: true, reason: null, max: 1, forwards: [] });
+    expect(await client.portForwarding("0123456789abcdef")).toEqual({ nodeId: "nl-ams", city: "Amsterdam", available: true, reason: null, max: 1, localPort: true, forwards: [] });
     const on = await client.portForwarding("0123456789abcdef", "enable");
-    expect(on.forwards).toEqual([{ port: 41234, host: "198.51.100.4" }]);
+    expect(on.forwards).toEqual([{ port: 41234, host: "198.51.100.4", localPort: null }]);
     expect((await client.portForwarding("0123456789abcdef", "disable")).forwards).toEqual([]);
     expect(seen).toEqual([
       "GET /api/v1/devices/0123456789abcdef/port-forwarding Bearer token-0123456789abcdef",
+      "body -",
       "POST /api/v1/devices/0123456789abcdef/port-forwarding Bearer token-0123456789abcdef",
+      "body {}",
       "DELETE /api/v1/devices/0123456789abcdef/port-forwarding Bearer token-0123456789abcdef",
+      "body -",
+    ]);
+    seen.length = 0;
+    expect((await client.portForwarding("0123456789abcdef", { addLocalPort: 3000 })).forwards).toEqual([{ port: 41234, host: "198.51.100.4", localPort: 3000 }]);
+    expect((await client.portForwarding("0123456789abcdef", { addLocalPort: null })).forwards[0]?.localPort).toBeNull();
+    expect((await client.portForwarding("0123456789abcdef", { port: 41234, localPort: 8080 })).forwards[0]?.localPort).toBe(8080);
+    expect(seen).toEqual([
+      "POST /api/v1/devices/0123456789abcdef/port-forwarding Bearer token-0123456789abcdef",
+      'body {"localPort":3000}',
+      "POST /api/v1/devices/0123456789abcdef/port-forwarding Bearer token-0123456789abcdef",
+      "body {}",
+      "PATCH /api/v1/devices/0123456789abcdef/port-forwarding/41234 Bearer token-0123456789abcdef",
+      'body {"localPort":8080}',
     ]);
   });
 });

@@ -26,6 +26,14 @@ import {
   type RegisterDeviceResponse,
 } from "./schemas";
 
+export type PortForwardAction =
+  | "get"
+  | "enable"
+  | "disable"
+  | { removePort: number }
+  | { addLocalPort: number | null }
+  | { port: number; localPort: number | null };
+
 export class ApiError extends Error {
   readonly i18n?: LocalizedMessage;
   readonly apiCode?: string;
@@ -203,8 +211,8 @@ export class ApiClient {
     return this.request("POST", "/api/v1/auth/login", { body: { code, totp: totp ?? null }, schema: loginSchema });
   }
 
-  register() {
-    return this.request("POST", "/api/v1/auth/register", { body: {}, schema: registerSchema });
+  register(referralCode?: string) {
+    return this.request("POST", "/api/v1/auth/register", { body: referralCode ? { referralCode } : {}, schema: registerSchema });
   }
 
   logout() {
@@ -262,7 +270,7 @@ export class ApiClient {
 
   async portForwarding(
     deviceId: string,
-    action: "get" | "enable" | "disable" | { removePort: number } = "get",
+    action: PortForwardAction = "get",
   ): Promise<PortForwardingState> {
     const route = `/api/v1/devices/${encodeURIComponent(deviceId)}/port-forwarding`;
     const body =
@@ -272,14 +280,24 @@ export class ApiClient {
           ? await this.request("POST", route, { auth: true, body: {}, schema: portForwardingSchema, expect: [201, 200] })
           : action === "disable"
             ? await this.request("DELETE", route, { auth: true, schema: portForwardingSchema, expect: [200] })
-            : await this.request("DELETE", `${route}/${action.removePort}`, { auth: true, schema: portForwardingSchema, expect: [200] });
+            : "addLocalPort" in action
+              ? await this.request("POST", route, {
+                  auth: true,
+                  body: action.addLocalPort === null ? {} : { localPort: action.addLocalPort },
+                  schema: portForwardingSchema,
+                  expect: [201, 200],
+                })
+              : "localPort" in action
+                ? await this.request("PATCH", `${route}/${action.port}`, { auth: true, body: { localPort: action.localPort }, schema: portForwardingSchema, expect: [200] })
+                : await this.request("DELETE", `${route}/${action.removePort}`, { auth: true, schema: portForwardingSchema, expect: [200] });
     return {
       nodeId: body.nodeId,
       city: body.city,
       available: body.available,
       reason: body.reason,
       max: body.max,
-      forwards: body.forwards.map((forward) => ({ port: forward.port, host: forward.host })),
+      localPort: body.localPort ?? false,
+      forwards: body.forwards.map((forward) => ({ port: forward.port, host: forward.host, localPort: forward.localPort ?? null })),
     };
   }
 

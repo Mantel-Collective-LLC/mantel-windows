@@ -73,6 +73,7 @@ export const loginSchema = z.object({
 
 export const registerSchema = loginSchema.extend({
   code: z.string().regex(/^\d{16}$/),
+  referralDays: z.number().int().min(1).max(3650).optional(),
 });
 
 export const nodeSchema = z.object({
@@ -106,8 +107,15 @@ export const portForwardingSchema = z.object({
   available: z.boolean(),
   reason: z.enum(PORT_FORWARD_REASONS).nullable().catch("unsupported"),
   max: z.number().int().min(1).max(16),
+  localPort: z.boolean().catch(false),
   forwards: z
-    .array(z.object({ port: z.number().int().min(1024).max(65535), host: hostOrIp }))
+    .array(
+      z.object({
+        port: z.number().int().min(1024).max(65535),
+        host: hostOrIp,
+        localPort: z.number().int().min(1).max(65535).nullable().catch(null),
+      }),
+    )
     .max(16),
 });
 
@@ -174,6 +182,8 @@ export const errorSchema = z.object({
 export const accountCodeSchema = z.string().regex(/^\d{16}$/);
 
 export const totpInputSchema = z.string().regex(/^[0-9A-Za-z -]{1,40}$/).nullish();
+
+export const referralInputSchema = z.string().regex(/^[0-9A-Za-z -]{1,40}$/).nullish();
 
 export const nodeIdSchema = identifier;
 

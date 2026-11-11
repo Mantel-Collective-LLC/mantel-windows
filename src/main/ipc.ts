@@ -20,7 +20,7 @@ import { MAX_PING_TARGETS, type LatencyMeasurement } from "../../shared/core/lat
 import { THEME_PREFERENCES } from "../../shared/core/theme";
 import { isProxyId, isTelegramProxyLink, parseProxyCreate, parseProxyPatch } from "../../shared/core/proxy";
 import { isSupportText, SUPPORT_ID, type SupportService } from "../../shared/core/support";
-import { accountCodeSchema, nodeIdSchema, settingsPatchSchema, totpInputSchema } from "./api/schemas";
+import { accountCodeSchema, nodeIdSchema, referralInputSchema, settingsPatchSchema, totpInputSchema } from "./api/schemas";
 import { localizeError, setLanguagePreference, systemLanguage, systemLocale } from "./i18n";
 import { autostartState, type LoginLauncher } from "./lifecycle";
 import type { Store } from "./store";
@@ -51,6 +51,7 @@ const supportTextSchema = z.string().refine(isSupportText);
 const deviceIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const deviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
 const forwardPortSchema = z.number().int().min(1).max(65535);
+const localPortSchema = z.number().int().min(1).max(65535).nullable();
 
 const clipboardTextSchema = z.string().min(1).max(64 * 1024);
 
@@ -117,7 +118,11 @@ export function registerIpc(options: {
     return wrap(() => vpn.login(parsed.data, second.data ?? undefined));
   });
 
-  handle(IPC.register, 0, () => wrap(() => vpn.register()));
+  handle(IPC.register, 1, (_event, referralCode) => {
+    const parsed = referralInputSchema.safeParse(referralCode);
+    if (!parsed.success) return invalid();
+    return wrap(() => vpn.register(parsed.data ?? undefined));
+  });
 
   handle(IPC.confirmRegistration, 0, () => wrap(() => vpn.confirmRegistration()));
 
@@ -322,10 +327,19 @@ export function registerIpc(options: {
     return wrap(() => vpn.devicePortForwarding(parsed.data, "get"));
   });
 
-  handle(IPC.addPortForward, 1, (_event, id) => {
+  handle(IPC.addPortForward, 2, (_event, id, localPort) => {
     const parsed = deviceIdSchema.safeParse(id);
-    if (!parsed.success) return invalid();
-    return wrap(() => vpn.devicePortForwarding(parsed.data, "enable"));
+    const parsedLocal = localPortSchema.safeParse(localPort);
+    if (!parsed.success || !parsedLocal.success) return invalid();
+    return wrap(() => vpn.devicePortForwarding(parsed.data, parsedLocal.data === null ? "enable" : { addLocalPort: parsedLocal.data }));
+  });
+
+  handle(IPC.setPortForwardLocalPort, 3, (_event, id, port, localPort) => {
+    const parsed = deviceIdSchema.safeParse(id);
+    const parsedPort = forwardPortSchema.safeParse(port);
+    const parsedLocal = localPortSchema.safeParse(localPort);
+    if (!parsed.success || !parsedPort.success || !parsedLocal.success) return invalid();
+    return wrap(() => vpn.devicePortForwarding(parsed.data, { port: parsedPort.data, localPort: parsedLocal.data }));
   });
 
   handle(IPC.removePortForward, 2, (_event, id, port) => {

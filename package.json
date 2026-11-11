@@ -1,7 +1,7 @@
 {
   "name": "mantel-desktop",
   "productName": "Mantel",
-  "version": "2026.0.14",
+  "version": "2026.0.15",
   "description": "Mantel VPN for Windows",
   "author": "Mantel",
   "private": true,
@@ -13,7 +13,7 @@
     "dev:mock": "node dev/run-with-mock.mjs",
     "web": "node scripts/flavor.mjs debug vite --config vite.web.config.ts",
     "web:prod": "node scripts/flavor.mjs prod vite --config vite.web.config.ts",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.tauri.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "icons": "node scripts/make-icons.mjs",
@@ -23,7 +23,10 @@
     "obfs:build": "node scripts/build-obfs.mjs win",
     "test:obfs": "go -C obfs-sidecar vet ./... && go -C obfs-sidecar test -count=1 ./...",
     "e2e": "npm run typecheck && node dev/e2e.mjs",
-    "e2e:prod": "npm run typecheck && node dev/e2e-prod.mjs"
+    "e2e:prod": "npm run typecheck && node dev/e2e-prod.mjs",
+    "tauri:dev": "node scripts/tauri.mjs dev debug",
+    "tauri:vite": "vite --config vite.tauri.config.ts",
+    "test:tauri": "cargo test --manifest-path tauri/src-tauri/Cargo.toml && cargo clippy --manifest-path tauri/src-tauri/Cargo.toml --all-targets -- -D warnings"
   },
   "dependencies": {
     "zod": "^4.6.7"
@@ -37,6 +40,8 @@
     "@noble/post-quantum": "0.7.1",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/cli": "2.12.4",
     "@types/d3-geo": "3.1.1",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",

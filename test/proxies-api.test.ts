@@ -157,7 +157,7 @@ describe("api client", () => {
   it("renames a device and releases a single forwarded port", async () => {
     expect((await client().renameDevice("0123456789abcdef", "Wohnzimmer")).name).toBe("Wohnzimmer");
     const state = await client().portForwarding("0123456789abcdef", { removePort: 41234 });
-    expect(state.forwards).toEqual([{ port: 41235, host: "198.51.100.4" }]);
+    expect(state.forwards).toEqual([{ port: 41235, host: "198.51.100.4", localPort: null }]);
     expect(seen.at(-1)).toBe("DELETE /api/v1/devices/0123456789abcdef/port-forwarding/41234 ");
   });
 });

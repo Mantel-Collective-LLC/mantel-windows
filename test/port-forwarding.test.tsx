@@ -6,6 +6,7 @@ import en from "../shared/core/i18n/en.json";
 import { createTranslator, type Language } from "../shared/core/i18n";
 import { I18nProvider } from "../shared/ui/src/i18n/context";
 import { PortForwardingRow, PortForwardingView, type PortForwardingLoad } from "../shared/ui/src/ui/port-forwarding";
+import { parseLocalPort } from "../shared/ui/src/screens/port-forwards";
 
 function view(language: Language, load: PortForwardingLoad, extra: { pending?: boolean; error?: string | null; copied?: boolean } = {}): string {
   return renderToStaticMarkup(
@@ -22,8 +23,8 @@ function view(language: Language, load: PortForwardingLoad, extra: { pending?: b
   );
 }
 
-const OFF: PortForwardingState = { nodeId: "nl-ams", city: "Amsterdam", available: true, reason: null, max: 1, forwards: [] };
-const ON: PortForwardingState = { ...OFF, forwards: [{ port: 41234, host: "198.51.100.4" }] };
+const OFF: PortForwardingState = { nodeId: "nl-ams", city: "Amsterdam", available: true, reason: null, max: 1, localPort: false, forwards: [] };
+const ON: PortForwardingState = { ...OFF, forwards: [{ port: 41234, host: "198.51.100.4", localPort: null }] };
 const switchOf = (html: string) => /<button[^>]*role="switch"[^>]*>/.exec(html)?.[0] ?? "";
 
 describe("settings row", () => {
@@ -82,6 +83,25 @@ describe("settings row", () => {
       </I18nProvider>,
     );
     expect(html).toBe("");
+  });
+
+  it("local port field: live validation (empty = public port, 1–65535 only)", () => {
+    expect(parseLocalPort("")).toBeNull();
+    expect(parseLocalPort("  ")).toBeNull();
+    expect(parseLocalPort("3000")).toBe(3000);
+    expect(parseLocalPort(" 1 ")).toBe(1);
+    expect(parseLocalPort("65535")).toBe(65535);
+    for (const bad of ["0", "65536", "99999", "-1", "3e3", "30.5", "abc", "3000a", "123456"]) expect(parseLocalPort(bad)).toBeUndefined();
+  });
+
+  it("local port texts: hint about 0.0.0.0 in both languages", () => {
+    expect(en.forwards.listenHint).toBe("The program on your device must listen on 0.0.0.0 (all interfaces), not only on 127.0.0.1.");
+    expect(de.forwards.listenHint).toContain("0.0.0.0");
+    for (const dict of [de, en]) {
+      for (const key of ["localPort", "localPortPlaceholder", "localPortHelp", "localPortInvalid", "localPortFor", "save"] as const) {
+        expect(dict.forwards[key].length).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("texts exist in both languages", () => {
